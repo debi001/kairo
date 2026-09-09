@@ -49,7 +49,7 @@ export default function Home() {
   const initialStep = autoplay ? 0 : pinnedStep;
 
   return (
-    <div className="flex min-h-full flex-1 flex-col bg-[#050505] text-zinc-200">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#050505] text-zinc-200">
       <header className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-zinc-900 px-4 py-4 sm:px-6">
         <span className="text-sm font-semibold tracking-tight text-zinc-100">
           Kairo
@@ -117,9 +117,9 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col items-center overflow-x-auto">
+      <main className="flex min-h-0 flex-1 flex-col items-center overflow-hidden">
         <div
-          className="w-full transition-[max-width] duration-300"
+          className="h-full w-full overflow-hidden transition-[max-width] duration-300"
           style={{
             maxWidth: viewport === "mobile" ? 393 : "100%",
             outline:
@@ -128,8 +128,6 @@ export default function Home() {
         >
           {current.render({ initialStep, autoplay })}
         </div>
-        {/* scroll room so the glow-dims-on-scroll behaviour is demoable */}
-        <div className="h-[60vh] w-full shrink-0" aria-hidden />
       </main>
     </div>
   );
