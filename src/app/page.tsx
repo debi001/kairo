@@ -2,25 +2,35 @@
 
 import { useState } from "react";
 import OngoingArcSection from "@/components/sections/OngoingArcSection";
+import RhythmSectionDraft2 from "@/components/sections/RhythmSectionDraft2";
 
 type SectionProps = { initialStep: number; autoplay: boolean };
 
 type Option = {
   id: string;
   label: string;
-  note: string;
   steps: number;
   render: (props: SectionProps) => React.ReactNode;
 };
 
 const OPTIONS: Option[] = [
   {
-    id: "ongoing-arc",
-    label: "Ongoing · Arc",
-    note: "Option 1 — Final draft",
+    id: "draft-1",
+    label: "Draft 1",
     steps: 3,
     render: (props) => (
       <OngoingArcSection
+        key={`${props.initialStep}-${props.autoplay}`}
+        {...props}
+      />
+    ),
+  },
+  {
+    id: "draft-2",
+    label: "Draft 2",
+    steps: 3,
+    render: (props) => (
+      <RhythmSectionDraft2
         key={`${props.initialStep}-${props.autoplay}`}
         {...props}
       />
@@ -53,9 +63,7 @@ export default function Home() {
       <header className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-zinc-900 px-4 py-4 sm:px-6">
         <span className="text-sm font-semibold tracking-tight text-zinc-100">
           Kairo
-          <span className="ml-2 font-normal text-zinc-500">
-            Section Playground
-          </span>
+          <span className="ml-2 font-normal text-zinc-500">The Rhythm</span>
         </span>
 
         <nav className="flex flex-wrap gap-2">

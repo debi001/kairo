@@ -1,0 +1,562 @@
+.host {
+  container: kairo-section / inline-size;
+  width: 100%;
+}
+
+.section {
+  --bg: #0a0a0a;
+  --hairline: #222;
+  --track: #333;
+  --text-1: #f2f2f2;
+  --text-2: #b3b3b3;
+  --muted: #8a8a8a;
+  --faint: #454545;
+  --goal: #5a5a5a;
+
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(16px, 3vh, 44px) clamp(16px, 6vw, 88px) 72px;
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+/* the content card — one notch lighter than the page */
+.card {
+  width: 100%;
+  max-width: 1104px;
+  border-radius: 24px;
+  background: #131313;
+  overflow: hidden;
+}
+
+/* the demo panel — a recessed dark screen inside the card */
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 24px 32px;
+  border-radius: 24px;
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  box-shadow: inset 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+/* the pitch shelf — sits on the card background below the panel */
+.pitch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 22px 24px 26px;
+  text-align: center;
+}
+.pitch h2 {
+  margin: 0;
+  font-size: 32px;
+  line-height: 40px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-1);
+}
+.pitch p {
+  margin: 0;
+  max-width: 560px;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--text-2);
+}
+
+/* ---------- arc ---------- */
+.arc {
+  position: relative;
+  align-self: center;
+  width: 100%;
+  max-width: 540px;
+  margin: 0;
+}
+.arc:focus-visible {
+  outline: 2px solid #3a3a3a;
+  outline-offset: 10px;
+  border-radius: 16px;
+}
+
+.aura {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 155%;
+  height: 170%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.45s ease;
+  background: radial-gradient(
+    50% 50% at 50% 50%,
+    rgba(255, 255, 255, 0.07) 0%,
+    rgba(255, 255, 255, 0.0245) 45%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+/* the ambient glow backs off while scrolling, and switches off on hover */
+.section[data-scrolling="true"] .aura {
+  opacity: 0.1;
+}
+.arc:hover .aura,
+.arc:focus-within .aura {
+  opacity: 0;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: auto; /* intrinsic 490:300 ratio from the viewBox */
+  overflow: visible;
+}
+
+.track {
+  fill: none;
+  stroke: var(--track);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 1 7;
+}
+.glow {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 12;
+  stroke-linecap: butt;
+  transition: stroke-dashoffset 0.95s cubic-bezier(0.65, 0, 0.35, 1);
+}
+.progress {
+  fill: none;
+  stroke: var(--text-1);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.95s cubic-bezier(0.65, 0, 0.35, 1);
+}
+/* faint arc of the previous cycle's furthest point — so a loop reset
+   never reads as "back to zero" */
+.trace {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: opacity 0.6s ease;
+}
+/* while dragging / resetting: track the value with no easing */
+.noAnim {
+  transition: none !important;
+}
+
+/* ---------- interactive layer: grab / drag / tap anywhere on the arc ---------- */
+.arcLayer {
+  cursor: grab;
+}
+.arcLayer.dragging {
+  cursor: grabbing;
+}
+.arcHit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 46;
+  pointer-events: stroke;
+  touch-action: none;
+}
+
+.waypoint {
+  pointer-events: none;
+}
+.wpRing {
+  fill: none;
+  stroke: var(--hairline);
+  stroke-width: 1.5;
+  transition: stroke 0.3s ease;
+}
+.wpDot {
+  fill: var(--muted);
+  transition: fill 0.3s ease, r 0.3s ease;
+}
+.wpOn .wpRing {
+  stroke: var(--text-2);
+}
+.wpOn .wpDot {
+  fill: var(--text-1);
+}
+
+/* trail left where a milestone used to sit, when the plan reshapes */
+.ghosts {
+  pointer-events: none;
+}
+.ghostDot {
+  fill: none;
+  stroke: rgba(200, 200, 200, 0.55);
+  stroke-width: 1;
+  stroke-dasharray: 1.5 1.5;
+  animation: ghostOut 0.75s ease-out both;
+}
+@keyframes ghostOut {
+  0% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* recalculating highlight that sweeps the arc once on re-plan */
+.sweep {
+  fill: none;
+  stroke: var(--text-1);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 22 900;
+  opacity: 0;
+  pointer-events: none;
+  animation: sweep 0.72s ease-out both;
+}
+@keyframes sweep {
+  0% {
+    stroke-dashoffset: 130;
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.85;
+  }
+  100% {
+    stroke-dashoffset: -740;
+    opacity: 0;
+  }
+}
+
+.goalRing {
+  fill: none;
+  stroke: var(--goal);
+  stroke-width: 2;
+  transition: stroke 0.5s ease;
+}
+.goalDot {
+  fill: var(--goal);
+  transition: fill 0.5s ease;
+}
+.goalOn .goalRing {
+  stroke: var(--text-1);
+}
+.goalOn .goalDot {
+  fill: var(--text-1);
+}
+/* goal holds position — a small pulse underlines that it never moves */
+.goalPulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: goalPulse 0.8s ease;
+}
+@keyframes goalPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.16);
+  }
+}
+
+.marker {
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.markerHalo {
+  fill: rgba(255, 255, 255, 0.16);
+  transition: fill 0.2s ease;
+}
+.markerDragging .markerHalo {
+  fill: rgba(255, 255, 255, 0.26);
+}
+.markerCore {
+  fill: var(--text-1);
+}
+
+/* ---------- loop cue ---------- */
+.loopHint {
+  position: absolute;
+  left: 50%;
+  top: 6%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: rgba(19, 19, 19, 0.9);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-2);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.loopHintOn {
+  opacity: 1;
+}
+
+/* ---------- centre icon (centred within the arc's span) ---------- */
+.iconWrap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.iconBox {
+  box-sizing: border-box;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #131313;
+  border: 1px solid var(--hairline);
+  display: grid;
+  color: var(--text-1);
+}
+/* the Material Symbol — fills the circle and hard-centres the glyph
+   (`.iconBox .glyph` outweighs the global `.material-symbols-outlined` reset) */
+.iconBox .glyph {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 34px;
+  line-height: 1;
+  animation: fadeUp 0.4s ease both;
+}
+.iconLabel {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  right: 0;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text-2);
+  animation: fadeUp 0.4s ease both;
+}
+/* beat 1: the "10 min" label reads as a small chip */
+.timeChip {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 3px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text-1);
+  animation: fadeUp 0.4s ease both;
+}
+
+/* ---------- overlines ---------- */
+.overline {
+  position: absolute;
+  top: 92%;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.96px;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.overlineStart {
+  left: 0;
+}
+.overlineEnd {
+  right: 0;
+}
+
+/* ---------- step copy ---------- */
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  text-align: center;
+  max-width: 560px;
+  /* reserve the tallest step's height so the frame never shifts between steps */
+  min-height: 116px;
+}
+.step h3 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-1);
+  animation: fadeUp 0.4s ease both;
+}
+.step p {
+  margin: 0;
+  max-width: 460px;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--text-2);
+  animation: fadeUp 0.4s ease both;
+}
+.cta {
+  margin-top: 8px;
+  font: 600 14px/20px var(--font-inter), system-ui, sans-serif;
+  color: #0a0a0a;
+  background: var(--text-1);
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  animation: fadeUp 0.4s ease both;
+  transition: background 0.18s ease, transform 0.12s ease;
+}
+.cta:hover {
+  background: #fff;
+}
+.cta:active {
+  transform: translateY(1px);
+}
+
+/* ---------- progress dots ---------- */
+.dots {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dot,
+.dotOn {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  background: var(--hairline);
+  width: 6px;
+  height: 6px;
+  transition: background 0.25s ease, width 0.25s ease, height 0.25s ease;
+}
+.dotOn {
+  background: var(--text-1);
+  width: 8px;
+  height: 8px;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---------- mobile (container-driven, so the playground toggle drives it) ---------- */
+@container kairo-section (max-width: 560px) {
+  .section {
+    padding: clamp(12px, 3vh, 28px) 12px 40px;
+  }
+  .card {
+    border-radius: 18px;
+  }
+  .panel {
+    gap: 20px;
+    padding: 20px 12px;
+    border-radius: 18px;
+  }
+  .pitch {
+    gap: 8px;
+    padding: 22px 16px 26px;
+  }
+  .arc {
+    width: 100%;
+    margin: 0;
+  }
+  .pitch h2 {
+    font-size: 24px;
+    line-height: 30px;
+  }
+  .pitch p {
+    font-size: 13.5px;
+    line-height: 20px;
+  }
+  .step {
+    gap: 8px;
+    max-width: 340px;
+    min-height: 100px;
+  }
+  .step h3 {
+    font-size: 16px;
+    line-height: 22px;
+    font-weight: 600;
+  }
+  .step p {
+    font-size: 13.5px;
+    line-height: 20px;
+  }
+  .iconBox {
+    width: 60px;
+    height: 60px;
+  }
+  .iconBox .glyph {
+    font-size: 30px;
+  }
+  .iconLabel {
+    font-size: 11px;
+  }
+  .overline {
+    font-size: 10.5px;
+    letter-spacing: 0.6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iconBox .glyph,
+  .iconLabel,
+  .timeChip,
+  .step h3,
+  .step p,
+  .cta,
+  .ghostDot,
+  .sweep,
+  .goalPulse {
+    animation: none;
+  }
+  .sweep {
+    display: none;
+  }
+  .marker,
+  .goalRing,
+  .goalDot,
+  .wpRing,
+  .wpDot,
+  .progress,
+  .glow,
+  .aura,
+  .trace,
+  .loopHint {
+    transition: none;
+  }
+}
