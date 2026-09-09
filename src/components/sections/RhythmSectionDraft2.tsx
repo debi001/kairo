@@ -25,7 +25,7 @@ const CTA_LABEL = "Start Your Goal";
 // Copy + geometry mirror the Figma FINAL frames (ArcH D · 9 / 10 / 11).
 const STEPS: Step[] = [
   {
-    glyph: "rate_review", // TODO: confirm new check-in icon (Figma annotation "New icon")
+    glyph: "hourglass_bottom", // TODO: confirm new check-in icon (Figma annotation "New icon")
     iconLabel: "≈ 10 min",
     heading: "Ten meaningful minutes",
     body:
@@ -48,7 +48,7 @@ const STEPS: Step[] = [
     heading: "You keep moving",
     body:
       "You leave with a clear next step and a little closer to your goal. Then you come back in a week or two — for the next ten minutes.",
-    progress: 0.52,
+    progress: 0.78,
     reshaped: true,
   },
 ];
@@ -67,8 +67,8 @@ const VB = { x: -20, y: -16, w: 490, h: 300 };
 // Milestones re-space around where you are now (not the day-one plan): they
 // slide from `planned` to `reshaped` when Kairo re-plans. The goal never moves.
 const MILESTONES = [
-  { planned: 0.34, reshaped: 0.52 },
-  { planned: 0.63, reshaped: 0.82 },
+  { planned: 0.34, reshaped: 0.5 },
+  { planned: 0.63, reshaped: 0.84 },
 ];
 
 const arcPoint = (f: number) => {
@@ -77,8 +77,10 @@ const arcPoint = (f: number) => {
 };
 
 // per-beat dwell so the loop moment (beat 3 → 1) is legible
-const DWELL_MS = [3600, 3400, 4400];
-const RESHAPE_MS = 850;
+const DWELL_MS = [3600, 3600, 4600];
+// how quickly autoplay resumes after the pointer leaves the arc
+const RESUME_MS = 450;
+const RESHAPE_MS = 1050;
 // Keep in sync with the stroke-dashoffset transition in the CSS module.
 const DRAW_MS = 950;
 
@@ -89,7 +91,7 @@ const clampStep = (n: number) =>
   Math.min(STEPS.length - 1, Math.max(0, Math.floor(n) || 0));
 
 // Which beat a dragged fraction belongs to.
-const stepForFraction = (f: number) => (f < 0.42 ? 0 : f < 0.64 ? 1 : 2);
+const stepForFraction = (f: number) => (f < 0.42 ? 0 : f < 0.68 ? 1 : 2);
 
 type Props = {
   /** step to show first (0-based) */
@@ -133,6 +135,7 @@ export default function RhythmSectionDraft2({
   const mProg = useRef(0); // 0 = milestones planned, 1 = reshaped
   const prevMaxFrac = useRef(0);
   const loopTimer = useRef<number | undefined>(undefined);
+  const resumeFast = useRef(false); // resume autoplay quickly after hover-out
 
   const reshaped = STEPS[active].reshaped;
   // monotonic latch: only play the reshape flourishes after the first re-plan
@@ -269,7 +272,9 @@ export default function RhythmSectionDraft2({
   // Slide milestones whenever the plan is reshaped / restored.
   useEffect(() => {
     const target = reshaped ? 1 : 0;
-    if (reduceMotion.current) {
+    // during a loop reset the curve snaps back too — snap the milestones with
+    // it so the user never sees a dot crawling backwards
+    if (reduceMotion.current || skipAnimRef.current) {
       placeMilestones(target);
       return;
     }
@@ -329,13 +334,15 @@ export default function RhythmSectionDraft2({
     };
   }, [p, placeMarker]);
 
-  // Auto-advance (per-beat dwell).
+  // Auto-advance (per-beat dwell; quick resume right after a hover-out).
   useEffect(() => {
     if (!autoplay || !revealed || paused || dragging || reduceMotion.current)
       return;
+    const delay = resumeFast.current ? RESUME_MS : DWELL_MS[active] ?? 3600;
+    resumeFast.current = false;
     const id = window.setTimeout(() => {
       if (!document.hidden) goStep((activeRef.current + 1) % STEPS.length);
-    }, DWELL_MS[active] ?? 3600);
+    }, delay);
     return () => window.clearTimeout(id);
   }, [autoplay, revealed, paused, dragging, active, goStep]);
 
@@ -424,10 +431,11 @@ export default function RhythmSectionDraft2({
       <section
         ref={rootRef}
         className={styles.section}
-        onMouseEnter={() => setPaused(true)}
-        onMouseLeave={() => setPaused(false)}
         onFocusCapture={() => setPaused(true)}
-        onBlurCapture={() => setPaused(false)}
+        onBlurCapture={() => {
+          setPaused(false);
+          resumeFast.current = true;
+        }}
         aria-roledescription="carousel"
         aria-label="A rhythm you return to"
         data-active={active}
@@ -441,6 +449,11 @@ export default function RhythmSectionDraft2({
               tabIndex={0}
               role="group"
               aria-label={`Step ${active + 1} of ${STEPS.length}: ${step.heading}`}
+              onMouseEnter={() => setPaused(true)}
+              onMouseLeave={() => {
+                setPaused(false);
+                resumeFast.current = true;
+              }}
               onKeyDown={(e) => {
                 if (e.key === "ArrowRight") {
                   e.preventDefault();
@@ -498,37 +511,6 @@ export default function RhythmSectionDraft2({
                   onPointerCancel={onArcUp}
                 >
                   <path d={ARC_D} className={styles.arcHit} />
-
-                  {/* faint rings where the milestones used to sit */}
-                  {everReshaped ? (
-                    <g
-                      key={`ghost-${reshaped}`}
-                      className={styles.ghosts}
-                      aria-hidden="true"
-                    >
-                      {MILESTONES.map((m, i) => {
-                        const pt = arcPoint(reshaped ? m.planned : m.reshaped);
-                        return (
-                          <circle
-                            key={i}
-                            cx={pt.x}
-                            cy={pt.y}
-                            r="8"
-                            className={styles.ghostDot}
-                          />
-                        );
-                      })}
-                    </g>
-                  ) : null}
-
-                  {/* recalculating highlight that sweeps the arc on re-plan */}
-                  {everReshaped ? (
-                    <path
-                      key={`sweep-${reshaped}`}
-                      d={ARC_D}
-                      className={styles.sweep}
-                    />
-                  ) : null}
 
                   {/* the two milestones — slide between planned & reshaped */}
                   {MILESTONES.map((m, i) => {
@@ -606,8 +588,8 @@ export default function RhythmSectionDraft2({
                   </span>
                 </span>
                 {active === 0 ? (
-                  <span key={`l-${active}`} className={styles.timeChip}>
-                    {step.iconLabel}
+                  <span key={`l-${active}`} className={styles.timeChipWrap}>
+                    <span className={styles.timeChip}>{step.iconLabel}</span>
                   </span>
                 ) : (
                   <span key={`l-${active}`} className={styles.iconLabel}>
