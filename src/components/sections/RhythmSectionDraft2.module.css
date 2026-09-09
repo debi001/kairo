@@ -237,6 +237,11 @@
   }
 }
 
+/* Today — small start node the curve emerges from */
+.todayDot {
+  fill: var(--muted);
+}
+
 .goalRing {
   fill: none;
   stroke: var(--goal);

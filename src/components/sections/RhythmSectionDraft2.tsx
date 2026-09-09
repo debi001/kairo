@@ -477,6 +477,15 @@ export default function RhythmSectionDraft2({
                   style={curveStyle}
                 />
 
+                {/* Today — the start node the curve grows out of */}
+                <circle
+                  cx="0"
+                  cy="224"
+                  r="4"
+                  className={styles.todayDot}
+                  aria-hidden="true"
+                />
+
                 <g
                   className={
                     dragging
@@ -559,7 +568,7 @@ export default function RhythmSectionDraft2({
                     <circle
                       cx="448"
                       cy="224"
-                      r="4"
+                      r="7"
                       className={styles.goalDot}
                     />
                   </g>
