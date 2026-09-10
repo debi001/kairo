@@ -772,15 +772,9 @@ export default function RhythmSectionDraft2({
                     {step.glyph}
                   </span>
                 </span>
-                {active === 0 ? (
-                  <span key={`l-${active}`} className={styles.timeChipWrap}>
-                    <span className={styles.timeChip}>{step.iconLabel}</span>
-                  </span>
-                ) : (
-                  <span key={`l-${active}`} className={styles.iconLabel}>
-                    {step.iconLabel}
-                  </span>
-                )}
+                <span key={`l-${active}`} className={styles.timeChipWrap}>
+                  <span className={styles.timeChip}>{step.iconLabel}</span>
+                </span>
               </div>
 
               <span className={`${styles.overline} ${styles.overlineStart}`}>
