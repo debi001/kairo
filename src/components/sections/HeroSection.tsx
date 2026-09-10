@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+// Static import (not a /public path) so Next emits it under _next/static/media
+// and applies basePath/assetPrefix — a raw "/Kairo-symbol.png" is left
+// unprefixed and 404s under the GitHub Pages base path.
+import kairoSymbol from "./kairo-symbol.png";
 import styles from "./Hero.module.css";
 
 const EYEBROW = "Your always-on AI mentor";
@@ -101,7 +105,7 @@ export default function HeroSection() {
               <span className={styles.ring} aria-hidden="true" />
               <span className={styles.ring} data-second aria-hidden="true" />
               <Image
-                src="/Kairo-symbol.png"
+                src={kairoSymbol}
                 alt=""
                 width={144}
                 height={144}
