@@ -14,8 +14,6 @@ type Step = {
   iconLabel: string;
   heading: string;
   body: string;
-  /** where the travelling node sits on the arc for this beat, 0–1 */
-  progress: number;
   /** milestones follow their reshaped positions from this beat on */
   reshaped: boolean;
 };
@@ -23,14 +21,15 @@ type Step = {
 const CTA_LABEL = "Start Your Goal";
 
 // Copy + geometry mirror the Figma FINAL frames (ArcH D · 9 / 10 / 11).
+// Progress values aren't fixed here any more — see `stepProgress` below: each
+// beat's position depends on which *visit* (cycle) you're on.
 const STEPS: Step[] = [
   {
-    glyph: "hourglass_bottom", // TODO: confirm new check-in icon (Figma annotation "New icon")
+    glyph: "hourglass_bottom",
     iconLabel: "≈ 10 min",
     heading: "Ten meaningful minutes",
     body:
       "Tell Kairo what's changed since your last visit — priorities, progress, anything in the way. A short check-in is all it takes to keep moving.",
-    progress: 0.3,
     reshaped: false,
   },
   {
@@ -39,8 +38,7 @@ const STEPS: Step[] = [
     heading: "Kairo reshapes your path",
     body:
       "You told it what changed — so your milestones and next steps re-space around where you are now. The goal doesn't move, and neither does your momentum.",
-    progress: 0.3, // marker HELD — the plan changes, not your position
-    reshaped: true,
+    reshaped: true, // marker HELD — the plan changes, not your position
   },
   {
     glyph: "directions_walk",
@@ -48,7 +46,6 @@ const STEPS: Step[] = [
     heading: "You keep moving",
     body:
       "You leave with a clear next step and a little closer to your goal. Then you come back in a week or two — for the next ten minutes.",
-    progress: 0.78,
     reshaped: true,
   },
 ];
@@ -64,34 +61,87 @@ const ARC_LEN_FALLBACK = 703.7;
 // viewBox — keep in sync with `.arc` aspect-ratio in the CSS module.
 const VB = { x: -20, y: -16, w: 490, h: 300 };
 
-// Milestones re-space around where you are now (not the day-one plan): they
-// slide from `planned` to `reshaped` when Kairo re-plans. The goal never moves.
-const MILESTONES = [
-  { planned: 0.34, reshaped: 0.5 },
-  { planned: 0.63, reshaped: 0.84 },
+// ---- cross-visit progress ---------------------------------------------------
+// Each lap (beat 1 → 2 → 3) covers a band of the arc. Beat 1 & 2 sit at the
+// band's start (2 is the reshape — you hold in place while the plan moves),
+// beat 3 grows to the band's end. The *next* lap's band picks up exactly where
+// the last one stopped — so "next visit" never resets you to the start, it
+// keeps you moving. Exactly 3 visits complete the goal (the 3rd band ends at
+// 1.0 — the arc literally reaches the goal node); the 4th visit wraps back to
+// band 0, i.e. a new goal, so the whole cycle repeats in threes.
+const CYCLE_BANDS = [
+  { start: 0.12, end: 0.42 },
+  { start: 0.42, end: 0.7 },
+  { start: 0.7, end: 1.0 },
 ];
+const bandForCycle = (cycle: number) =>
+  CYCLE_BANDS[cycle % CYCLE_BANDS.length];
+
+const stepProgress = (beatIndex: number, cycle: number) => {
+  const band = bandForCycle(cycle);
+  return beatIndex === 2 ? band.end : band.start;
+};
+
+// Milestones re-space around where you are now (not the day-one plan): they
+// slide from `planned` to `reshaped` when Kairo re-plans. The goal never
+// moves. Positions are relative to the current visit's band, so "your next
+// step" is always freshly ahead of wherever that visit starts. Both reshaped
+// positions stay inside the band (< end) so beat 3's growth to `end` reaches
+// *both* of them every visit — one milestone reached per visit would leave
+// the trail lopsided and the next visit's reset would look inconsistent.
+const milestonesForCycle = (cycle: number) => {
+  const { start, end } = bandForCycle(cycle);
+  const span = end - start;
+  return [
+    { planned: start + span * 0.25, reshaped: start + span * 0.6 },
+    { planned: start + span * 0.5, reshaped: start + span * 0.85 },
+  ];
+};
 
 const arcPoint = (f: number) => {
   const th = Math.PI * (1 - Math.max(0, Math.min(1, f)));
   return { x: ARC_CX + ARC_R * Math.cos(th), y: ARC_CY - ARC_R * Math.sin(th) };
 };
 
+// svg user-space point → percentage within `.arc`, for positioning HTML
+// overlays (tooltip, loop hint) that must track a point on the responsive svg.
+const svgToPct = (x: number, y: number) => ({
+  xPct: ((x - VB.x) / VB.w) * 100,
+  yPct: ((y - VB.y) / VB.h) * 100,
+});
+
 // per-beat dwell so the loop moment (beat 3 → 1) is legible
 const DWELL_MS = [3600, 3600, 4600];
 // how quickly autoplay resumes after the pointer leaves the arc
 const RESUME_MS = 450;
-const RESHAPE_MS = 1050;
+// milestone reshape: how long each dot takes, and the gap before the 2nd starts
+const RESHAPE_MS = 900;
+const STAGGER_MS = 180;
 // Keep in sync with the stroke-dashoffset transition in the CSS module.
 const DRAW_MS = 950;
 
 const easeInOut = (t: number) =>
   t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
+// easeOutBack — overshoots slightly past the target then settles, so a
+// milestone reads as "snapping into place" rather than gliding.
+const easeOvershoot = (t: number) => {
+  const c1 = 1.25;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+};
+
 const clampStep = (n: number) =>
   Math.min(STEPS.length - 1, Math.max(0, Math.floor(n) || 0));
 
-// Which beat a dragged fraction belongs to.
-const stepForFraction = (f: number) => (f < 0.42 ? 0 : f < 0.68 ? 1 : 2);
+// Which beat a dragged fraction belongs to, within the current visit's band.
+const stepForFraction = (f: number, cycle: number) => {
+  const { start, end } = bandForCycle(cycle);
+  const span = end - start;
+  if (f < start + span * 0.4) return 0;
+  if (f < start + span * 0.75) return 1;
+  return 2;
+};
 
 type Props = {
   /** step to show first (0-based) */
@@ -105,18 +155,31 @@ export default function RhythmSectionDraft2({
   autoplay = true,
 }: Props) {
   const [active, setActive] = useState(() => clampStep(initialStep));
+  const [cycle, setCycle] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [paused, setPaused] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [scrolling, setScrolling] = useState(false);
   const [loopHint, setLoopHint] = useState(false);
+  // bumping either entry replays that milestone's "landed" pulse
+  const [landKey, setLandKey] = useState<[number, number]>([0, 0]);
 
   // Curve growth: a plain 0–1 number the CSS transition eases via dashoffset.
   const [len, setLen] = useState(ARC_LEN_FALLBACK);
   const [p, setP] = useState(0);
   const [skipAnim, setSkipAnim] = useState(false);
-  // faint arc kept from the previous cycle's furthest point
+  // faint arc kept from the previous visit's furthest point
   const [traceFrac, setTraceFrac] = useState(0);
+  // history of reached milestones — persists across all 3 visits of a lap,
+  // clears once the 3rd visit's goal is reached and a new lap begins
+  const [completedMarks, setCompletedMarks] = useState<number[]>([]);
+  // hover tooltip — explains what a node on the arc is (goal / milestone /
+  // completed milestone) without a permanent on-screen legend
+  const [tooltip, setTooltip] = useState<{
+    xPct: number;
+    yPct: number;
+    label: string;
+  } | null>(null);
 
   const rootRef = useRef<HTMLElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -129,13 +192,16 @@ export default function RhythmSectionDraft2({
   const markerFrac = useRef(0);
   const committedP = useRef(0);
   const activeRef = useRef(active);
+  const cycleRef = useRef(cycle);
   const skipAnimRef = useRef(false);
   const draggingRef = useRef(false);
   const reduceMotion = useRef(false);
-  const mProg = useRef(0); // 0 = milestones planned, 1 = reshaped
+  const mLocalT = useRef<[number, number]>([0, 0]); // per-milestone local t (0=planned,1=reshaped)
+  const milestonePrevCycle = useRef(0);
   const prevMaxFrac = useRef(0);
   const loopTimer = useRef<number | undefined>(undefined);
   const resumeFast = useRef(false); // resume autoplay quickly after hover-out
+  const recordedMarksRef = useRef<Set<string>>(new Set()); // dedup key: `${cycle}-${i}`
 
   const reshaped = STEPS[active].reshaped;
   // monotonic latch: only play the reshape flourishes after the first re-plan
@@ -173,7 +239,7 @@ export default function RhythmSectionDraft2({
   );
 
   // Move the curve to a target fraction. `reset` snaps back to the start first
-  // so the arc always *grows forward* from Today, never crawls backward.
+  // so the arc always *grows forward*, never crawls backward.
   const applyProgress = useCallback((target: number, reset: boolean) => {
     if (reset && !reduceMotion.current) {
       skipAnimRef.current = true;
@@ -195,41 +261,51 @@ export default function RhythmSectionDraft2({
   }, []);
 
   // ---- milestones (reshape) ------------------------------------------------
-  const placeMilestones = useCallback((t: number) => {
-    mProg.current = t;
-    MILESTONES.forEach((m, i) => {
+  const placeMilestoneAt = useCallback(
+    (i: number, cycleForCalc: number, t: number) => {
+      const m = milestonesForCycle(cycleForCalc)[i];
       const g = milestoneRefs.current[i];
-      if (!g) return;
+      if (!g || !m) return;
       const pt = arcPoint(m.planned + (m.reshaped - m.planned) * t);
       g.setAttribute("transform", `translate(${pt.x} ${pt.y})`);
-    });
-  }, []);
+    },
+    [],
+  );
 
   // ---- go to a beat -------------------------------------------------------
   const goStep = useCallback(
     (idx: number) => {
       const next = clampStep(idx);
       const prev = activeRef.current;
+      const prevCycle = cycleRef.current;
 
-      // leaving the last beat — remember how far the marker got, so a reset
-      // still shows a faint trace ("not back to zero")
+      // leaving beat 3 — remember how far we got, so a reset still shows a
+      // faint trace ("not back to zero")
       if (prev === STEPS.length - 1 && next !== prev) {
-        prevMaxFrac.current = Math.max(
-          prevMaxFrac.current,
-          STEPS[STEPS.length - 1].progress,
-        );
+        const prevEnd = stepProgress(2, prevCycle);
+        prevMaxFrac.current = Math.max(prevMaxFrac.current, prevEnd);
         setTraceFrac(prevMaxFrac.current);
       }
 
-      // the loop wrap: beat 3 -> beat 1
+      // completing a full lap — bump the visit so beat 1 resumes further on
       const wrapping = prev === STEPS.length - 1 && next === 0;
       if (wrapping) {
+        cycleRef.current = prevCycle + 1;
+        setCycle(cycleRef.current);
         setLoopHint(true);
         window.clearTimeout(loopTimer.current);
         loopTimer.current = window.setTimeout(() => setLoopHint(false), 1400);
+
+        // a fresh goal every 3 visits — clear the completed-milestone trail
+        if (cycleRef.current % CYCLE_BANDS.length === 0) {
+          recordedMarksRef.current.clear();
+          setCompletedMarks([]);
+        }
       }
 
-      if (revealed) applyProgress(STEPS[next].progress, next < prev);
+      const target = stepProgress(next, cycleRef.current);
+      const isBackward = target < committedP.current - 0.001;
+      if (revealed) applyProgress(target, isBackward);
       activeRef.current = next;
       setActive(next);
     },
@@ -243,9 +319,13 @@ export default function RhythmSectionDraft2({
     ).matches;
     if (trackRef.current) setLen(trackRef.current.getTotalLength());
     placeMarker(0);
-    placeMilestones(reshaped ? 1 : 0);
+    const t0 = reshaped ? 1 : 0;
+    mLocalT.current = [t0, t0];
+    milestonePrevCycle.current = cycleRef.current;
+    placeMilestoneAt(0, cycleRef.current, t0);
+    placeMilestoneAt(1, cycleRef.current, t0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placeMarker, placeMilestones]);
+  }, [placeMarker, placeMilestoneAt]);
 
   // Draw in once the section scrolls into view.
   useEffect(() => {
@@ -266,33 +346,77 @@ export default function RhythmSectionDraft2({
 
   // First reveal: grow forward from 0 to the current beat.
   useEffect(() => {
-    if (revealed) applyProgress(STEPS[activeRef.current].progress, false);
+    if (revealed)
+      applyProgress(stepProgress(activeRef.current, cycleRef.current), false);
   }, [revealed, applyProgress]);
 
-  // Slide milestones whenever the plan is reshaped / restored.
+  // Slide milestones whenever the plan is reshaped / restored — staggered,
+  // with a little overshoot, so each move reads as one clear "it just moved
+  // here" gesture instead of two things happening at once.
   useEffect(() => {
     const target = reshaped ? 1 : 0;
-    // during a loop reset the curve snaps back too — snap the milestones with
-    // it so the user never sees a dot crawling backwards
-    if (reduceMotion.current || skipAnimRef.current) {
-      placeMilestones(target);
+    const cycleChanged = milestonePrevCycle.current !== cycle;
+    milestonePrevCycle.current = cycle;
+
+    // a new visit's milestones are a fresh plan, not an undo of the last one —
+    // snap instead of sliding backwards. Same during a curve reset.
+    if (reduceMotion.current || skipAnimRef.current || cycleChanged) {
+      mLocalT.current = [target, target];
+      placeMilestoneAt(0, cycle, target);
+      placeMilestoneAt(1, cycle, target);
       return;
     }
-    const from = mProg.current;
-    if (from === target) return;
-    const start = performance.now();
-    let raf = requestAnimationFrame(function tick(now) {
-      const t = Math.min(1, Math.max(0, (now - start) / RESHAPE_MS));
-      placeMilestones(from + (target - from) * easeInOut(t));
-      if (t < 1) raf = requestAnimationFrame(tick);
-      else placeMilestones(target);
+
+    const rafs: Array<number | undefined> = [undefined, undefined];
+    const delays: Array<number | undefined> = [undefined, undefined];
+
+    ([0, 1] as const).forEach((i) => {
+      const from = mLocalT.current[i];
+      if (from === target) return;
+      const run = () => {
+        const start = performance.now();
+        const tick = (now: number) => {
+          const t = Math.min(1, Math.max(0, (now - start) / RESHAPE_MS));
+          const val = from + (target - from) * easeOvershoot(t);
+          mLocalT.current[i] = val;
+          placeMilestoneAt(i, cycle, val);
+          if (t < 1) {
+            rafs[i] = requestAnimationFrame(tick);
+          } else {
+            mLocalT.current[i] = target;
+            placeMilestoneAt(i, cycle, target);
+            setLandKey((k) => {
+              const next: [number, number] = [...k];
+              next[i] += 1;
+              return next;
+            });
+          }
+        };
+        rafs[i] = requestAnimationFrame(tick);
+      };
+      if (i === 0) run();
+      else delays[i] = window.setTimeout(run, STAGGER_MS);
     });
-    const done = window.setTimeout(() => placeMilestones(target), RESHAPE_MS + 120);
+
     return () => {
-      cancelAnimationFrame(raf);
-      window.clearTimeout(done);
+      rafs.forEach((r) => r !== undefined && cancelAnimationFrame(r));
+      delays.forEach((d) => d !== undefined && window.clearTimeout(d));
     };
-  }, [reshaped, placeMilestones]);
+  }, [reshaped, cycle, placeMilestoneAt]);
+
+  // Record each milestone's position the first time it's reached, so the
+  // trail persists across visits as a hint of what's already been done.
+  useEffect(() => {
+    const list = milestonesForCycle(cycle);
+    list.forEach((m, i) => {
+      const frac = reshaped ? m.reshaped : m.planned;
+      if (p < frac - 0.02) return;
+      const key = `${cycle}-${i}`;
+      if (recordedMarksRef.current.has(key)) return;
+      recordedMarksRef.current.add(key);
+      setCompletedMarks((marks) => [...marks, frac]);
+    });
+  }, [p, cycle, reshaped]);
 
   // Dim the ambient glow while the page is actively scrolling.
   useEffect(() => {
@@ -375,10 +499,11 @@ export default function RhythmSectionDraft2({
     setDragging(true);
     setSkipAnim(true);
     setPaused(true);
+    setTooltip(null);
     const f = pointerToFraction(e.clientX, e.clientY);
     committedP.current = f;
     paintCurve(f);
-    const idx = stepForFraction(f);
+    const idx = stepForFraction(f, cycleRef.current);
     if (idx !== activeRef.current) {
       activeRef.current = idx;
       setActive(idx);
@@ -390,7 +515,7 @@ export default function RhythmSectionDraft2({
     const f = pointerToFraction(e.clientX, e.clientY);
     committedP.current = f;
     paintCurve(f);
-    const idx = stepForFraction(f);
+    const idx = stepForFraction(f, cycleRef.current);
     if (idx !== activeRef.current) {
       activeRef.current = idx;
       setActive(idx);
@@ -410,11 +535,12 @@ export default function RhythmSectionDraft2({
     setSkipAnim(false);
     setPaused(false);
 
-    const idx = stepForFraction(markerFrac.current);
+    const idx = stepForFraction(markerFrac.current, cycleRef.current);
     activeRef.current = idx;
     setActive(idx);
-    setP(STEPS[idx].progress);
-    committedP.current = STEPS[idx].progress;
+    const target = stepProgress(idx, cycleRef.current);
+    setP(target);
+    committedP.current = target;
   };
   // --------------------------------------------------------------------------
 
@@ -422,9 +548,13 @@ export default function RhythmSectionDraft2({
   const atGoal = active === STEPS.length - 1;
   const dashOffset = len * (1 - p);
   const curveStyle = { strokeDasharray: len, strokeDashoffset: dashOffset };
-  const traceStyle = { strokeDasharray: len, strokeDashoffset: len * (1 - traceFrac) };
+  const traceStyle = {
+    strokeDasharray: len,
+    strokeDashoffset: len * (1 - traceFrac),
+  };
   const curveClass = (base: string) =>
     skipAnim ? `${base} ${styles.noAnim}` : base;
+  const milestones = milestonesForCycle(cycle);
 
   return (
     <div className={styles.host}>
@@ -439,6 +569,7 @@ export default function RhythmSectionDraft2({
         aria-roledescription="carousel"
         aria-label="A rhythm you return to"
         data-active={active}
+        data-cycle={cycle}
         data-revealed={String(revealed)}
         data-scrolling={String(scrolling)}
       >
@@ -466,6 +597,13 @@ export default function RhythmSectionDraft2({
               }}
             >
               <span className={styles.aura} aria-hidden="true" />
+              {cycle > 0 && (
+                <span
+                  key={cycle}
+                  className={styles.auraPulse}
+                  aria-hidden="true"
+                />
+              )}
 
               <svg
                 ref={svgRef}
@@ -512,10 +650,32 @@ export default function RhythmSectionDraft2({
                 >
                   <path d={ARC_D} className={styles.arcHit} />
 
+                  {/* completed-milestone trail — persists across all 3 visits */}
+                  {completedMarks.map((frac, i) => {
+                    const pt = arcPoint(frac);
+                    return (
+                      <circle
+                        key={`mark-${i}`}
+                        cx={pt.x}
+                        cy={pt.y}
+                        r="3"
+                        className={styles.historyDot}
+                        onPointerEnter={() =>
+                          setTooltip({
+                            ...svgToPct(pt.x, pt.y),
+                            label: "Completed milestone",
+                          })
+                        }
+                        onPointerLeave={() => setTooltip(null)}
+                      />
+                    );
+                  })}
+
                   {/* the two milestones — slide between planned & reshaped */}
-                  {MILESTONES.map((m, i) => {
+                  {milestones.map((m, i) => {
                     const frac = reshaped ? m.reshaped : m.planned;
                     const done = p >= frac - 0.02;
+                    const pt = arcPoint(frac);
                     return (
                       <g
                         key={i}
@@ -527,9 +687,21 @@ export default function RhythmSectionDraft2({
                             ? `${styles.waypoint} ${styles.wpOn}`
                             : styles.waypoint
                         }
+                        onPointerEnter={() =>
+                          setTooltip({
+                            ...svgToPct(pt.x, pt.y),
+                            label: done ? "Completed milestone" : "Milestone",
+                          })
+                        }
+                        onPointerLeave={() => setTooltip(null)}
                       >
-                        <circle r="9" className={styles.wpRing} />
-                        <circle r="3.5" className={styles.wpDot} />
+                        <g
+                          key={`land-${i}-${landKey[i]}`}
+                          className={styles.wpLandGroup}
+                        >
+                          <circle r="9" className={styles.wpRing} />
+                          <circle r="3.5" className={styles.wpDot} />
+                        </g>
                       </g>
                     );
                   })}
@@ -540,6 +712,10 @@ export default function RhythmSectionDraft2({
                     className={`${atGoal ? styles.goalOn : ""} ${
                       everReshaped ? styles.goalPulse : ""
                     }`}
+                    onPointerEnter={() =>
+                      setTooltip({ ...svgToPct(448, 224), label: "Goal" })
+                    }
+                    onPointerLeave={() => setTooltip(null)}
                   >
                     <circle
                       cx="448"
@@ -567,6 +743,15 @@ export default function RhythmSectionDraft2({
                   </g>
                 </g>
               </svg>
+
+              {tooltip && (
+                <div
+                  className={styles.tooltip}
+                  style={{ left: `${tooltip.xPct}%`, top: `${tooltip.yPct}%` }}
+                >
+                  {tooltip.label}
+                </div>
+              )}
 
               <div
                 className={`${styles.loopHint} ${

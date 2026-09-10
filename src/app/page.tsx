@@ -48,7 +48,7 @@ const pill = (on: boolean) =>
   }`;
 
 export default function Home() {
-  const [activeId, setActiveId] = useState(OPTIONS[0].id);
+  const [activeId, setActiveId] = useState("draft-2");
   const [viewport, setViewport] = useState<Viewport>("desktop");
 
   // Review controls — client-only state, so no SSR/hydration surprises.
