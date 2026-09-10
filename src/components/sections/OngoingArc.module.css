@@ -4,14 +4,19 @@
 }
 
 .section {
-  --bg: #0a0a0a;
-  --hairline: #222;
-  --track: #333;
-  --text-1: #f2f2f2;
-  --text-2: #b3b3b3;
-  --muted: #8a8a8a;
-  --faint: #454545;
-  --goal: #5a5a5a;
+  /* DS = Upskillist Design System (Figma "Upskillist Design System" library,
+     "Color Semantic Base" collection). Swap these for the real bound
+     variables when this moves into the live repo. --track/--faint/--goal
+     have no direct DS match yet — flag with design before shipping. */
+  --bg: #0a0a0a; /* DS: surface/0 */
+  --hairline: #222; /* DS: border/subtle */
+  --track: #333; /* no DS match found — prototype-only neutral */
+  --text-1: #f2f2f2; /* DS: text/title/primary */
+  --text-2: #b3b3b3; /* DS: text/title/secondary */
+  --muted: #8a8a8a; /* DS: text/body/secondary (#8c8c8c — nearest match) */
+  --faint: #454545; /* no DS match found — prototype-only neutral */
+  --goal: #5a5a5a; /* no DS match found — "Color Semantic Goal" tokens are
+     goal-category colors (e.g. orange for "get a promotion"), not this */
 
   box-sizing: border-box;
   width: 100%;

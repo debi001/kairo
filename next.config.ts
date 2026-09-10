@@ -11,6 +11,12 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   basePath: onPages ? `/${REPO}` : "",
   assetPrefix: onPages ? `/${REPO}/` : "",
+  // The App Router's client-side navigation settles on trailing-slash URLs
+  // (e.g. /rhythm/draft-2/) regardless of this setting. Without it, export
+  // writes sibling `draft-2.html` files instead of `draft-2/index.html` — a
+  // hard reload or direct link to the trailing-slash URL then 404s / shows a
+  // directory listing on static hosts. This makes both sides match.
+  trailingSlash: true,
 };
 
 export default nextConfig;
